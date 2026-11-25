@@ -4,9 +4,10 @@ from .bricks import BrickStorm
 from .hub import GameHub
 from .meteors import MeteorDrift
 from .paddle import PaddleDuel
+from .swarm import SwarmSiege
 from .trails import GlowTrails
 
-GAMES = {cls.id: cls for cls in (PaddleDuel, GlowTrails, BrickStorm, MeteorDrift)}
+GAMES = {cls.id: cls for cls in (PaddleDuel, GlowTrails, BrickStorm, MeteorDrift, SwarmSiege)}
 
 
 def catalog():
