@@ -21,7 +21,8 @@ from PIL import Image, ImageSequence
 
 from ledanim import wsserver
 from ledanim.driver import MatrixDriver
-from ledanim.games import GAMES, GameHub, PaddleDuel
+from ledanim import games
+from ledanim.games import GAMES, GameHub
 from ledanim.scenes import (AnimationScene, ClockScene, EffectScene, LiveScene,
                             PlaylistScene, OpenSenseMapScene, TestPatternScene, WeatherScene)
 from ledanim.opensensemap import OpenSenseMapService
@@ -38,6 +39,7 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 ANIM_DIR = os.path.join(DATA_DIR, "animations")
 STATE_FILE = os.path.join(DATA_DIR, "state.json")
 PLAYLIST_FILE = os.path.join(DATA_DIR, "playlist.json")
+HIGHSCORE_FILE = os.path.join(DATA_DIR, "highscores.json")
 MAX_FRAMES = 1000
 VIEWS = {"clock": "Clock", "weather": "Weather", "dashboard": "Clock + weather",
          "opensensemap": "openSenseMap", "test": "Test pattern"}
@@ -151,7 +153,7 @@ def build_scene(spec, nested=False):
     if kind == "game" and not nested:
         if name not in GAMES:
             abort(400, "unknown game '%s'" % name)
-        return PaddleDuel(hub, W, H, join_url=play_url()), {"type": "game", "name": name}
+        return GAMES[name](hub, W, H, join_url=play_url()), {"type": "game", "name": name}
     if kind == "playlist" and not nested:
         items = []
         for item in read_json(PLAYLIST_FILE, []):
@@ -244,7 +246,7 @@ def api_catalog():
     return jsonify(effects=[{"id": k, "title": v.title} for k, v in EFFECTS.items()],
                    effects_error=EFFECTS_ERROR,
                    views=[{"id": k, "title": v} for k, v in VIEWS.items()],
-                   games=[{"id": k, "title": v} for k, v in GAMES.items()],
+                   games=[{"id": k, **v} for k, v in games.catalog().items()],
                    game_port=ports["game"])
 
 
@@ -493,7 +495,8 @@ def main():
     scfg = state.get("opensensemap", {})
     opensensemap = OpenSenseMapService(box_id=scfg.get("box"), sensors=scfg.get("sensors"), mode=scfg.get("mode", "big"))
 
-    hub = GameHub(is_running=lambda: driver.spec.get("type") == "game",
+    games.base.HIGHSCORE_FILE = HIGHSCORE_FILE
+    hub = GameHub(games=games.catalog(), is_running=lambda: driver.spec.get("type") == "game",
                   launch=lambda name: show({"type": "game", "name": name}))
     wsserver.serve(args.host, ports["game"], hub.serve)
 
