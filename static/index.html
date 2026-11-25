@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LED Animator</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>LED Animator</h1>
+  <div class="status">
+    <img id="screen" alt="matrix" title="What the matrix shows right now">
+    <span id="statusText">connecting…</span>
+  </div>
+  <label class="bright">☀ <input id="brightness" type="range" min="1" max="100"> <span id="brightVal"></span></label>
+  <button id="stop" title="Turn the matrix off">■ Off</button>
+</header>
+
+<main>
+  <section class="editor">
+    <div class="toolbar">
+      <div class="group" id="tools">
+        <button data-tool="pen" class="active" title="Pen (P)">✏️</button>
+        <button data-tool="eraser" title="Eraser (E) — right-click also erases">🧽</button>
+        <button data-tool="fill" title="Fill (F)">🪣</button>
+        <button data-tool="line" title="Line (L)">╱</button>
+        <button data-tool="rect" title="Rectangle (R)">▭</button>
+        <button data-tool="rectf" title="Filled rectangle (Shift+R)">■</button>
+        <button data-tool="picker" title="Color picker (I)">💧</button>
+      </div>
+      <div class="group">
+        <input type="color" id="color" value="#ff0000" title="Color">
+        <div id="palette"></div>
+      </div>
+      <div class="group">
+        <button id="undo" title="Undo (Ctrl+Z)">↶</button>
+        <button id="redo" title="Redo (Ctrl+Y)">↷</button>
+        <button id="clearFrame" title="Clear frame">🗑</button>
+        <button data-shift="-1,0" title="Shift left">⇠</button>
+        <button data-shift="1,0" title="Shift right">⇢</button>
+        <button data-shift="0,-1" title="Shift up">⇡</button>
+        <button data-shift="0,1" title="Shift down">⇣</button>
+      </div>
+      <div class="group toggles">
+        <label><input type="checkbox" id="grid" checked> Grid</label>
+        <label><input type="checkbox" id="onion"> Onion skin</label>
+        <label class="live"><input type="checkbox" id="live"> Live on matrix</label>
+      </div>
+    </div>
+
+    <div id="canvasWrap"><canvas id="view"></canvas></div>
+
+    <div class="framebar">
+      <div class="group">
+        <button id="prevFrame" title="Previous frame (←)">◀</button>
+        <span id="frameInfo">1 / 1</span>
+        <button id="nextFrame" title="Next frame (→)">▶</button>
+        <button id="addFrame" title="New blank frame">＋ New</button>
+        <button id="dupFrame" title="Duplicate frame (D)">⧉ Duplicate</button>
+        <button id="delFrame" title="Delete frame">✕ Delete</button>
+        <button id="moveLeft" title="Move frame left">⇤</button>
+        <button id="moveRight" title="Move frame right">⇥</button>
+      </div>
+      <div class="group">
+        <label>Frame ms <input type="number" id="frameDur" min="10" max="60000" step="10"></label>
+        <label>All frames <input type="number" id="fps" min="1" max="60" value="10"> fps</label>
+        <button id="applyFps">Apply</button>
+        <label><input type="checkbox" id="loop" checked> Loop</label>
+        <button id="preview" title="Preview in browser (Space)">▶ Preview</button>
+      </div>
+    </div>
+    <div id="frames"></div>
+  </section>
+
+  <aside>
+    <div class="card">
+      <h2>Animation</h2>
+      <div class="row">
+        <input id="animName" placeholder="name">
+        <button id="save" class="primary">💾 Save</button>
+      </div>
+      <div class="row">
+        <button id="newAnim">New</button>
+        <button id="playCurrent" class="primary">▶ Play on matrix</button>
+      </div>
+      <div class="row">
+        <button id="exportJson">Export file</button>
+        <label class="filebtn">Import file<input type="file" id="importJson" accept=".json,application/json"></label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Saved</h2>
+      <ul id="library"></ul>
+    </div>
+
+    <div class="card">
+      <h2>Effects</h2>
+      <div id="effects" class="btngrid"></div>
+      <p id="effectsError" class="hint err"></p>
+      <div class="row">
+        <label class="grow">Speed <input id="effectSpeed" type="range" min="0.2" max="3" step="0.1" value="1"> <span id="speedVal">1.0×</span></label>
+      </div>
+      <div class="row">
+        <select id="captureEffect" title="Effect to copy into the editor"></select>
+        <label><input type="number" id="captureSec" min="1" max="20" value="3"> s</label>
+        <button id="capture" title="Render the effect into editable frames">→ Editor</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Views</h2>
+      <div id="views" class="btngrid"></div>
+      <div class="row">
+        <label>Clock color <input type="color" id="clockColor" value="#ff8c00"></label>
+      </div>
+      <h3>Weather</h3>
+      <div class="row">
+        <input id="city" placeholder="City, e.g. Berlin">
+        <select id="units"><option value="metric">°C</option><option value="imperial">°F</option></select>
+        <button id="setCity">Set</button>
+      </div>
+      <p id="weatherInfo" class="hint">…</p>
+    </div>
+
+    <div class="card">
+      <h2>Playlist</h2>
+      <ul id="playlist"></ul>
+      <div class="row">
+        <select id="plSource" class="grow"></select>
+        <label><input type="number" id="plSec" min="1" max="3600" value="20"> s</label>
+        <button id="plAdd">＋</button>
+      </div>
+      <div class="row">
+        <button id="plPlay" class="primary">▶ Save &amp; play playlist</button>
+      </div>
+      <p class="hint">Rotates through animations, effects and views forever.</p>
+    </div>
+
+    <div class="card">
+      <h2>Image / GIF</h2>
+      <div class="row">
+        <select id="fit">
+          <option value="contain">Fit</option>
+          <option value="cover">Fill (crop)</option>
+          <option value="stretch">Stretch</option>
+        </select>
+        <label class="filebtn">Choose file…<input type="file" id="imageFile" accept="image/*"></label>
+      </div>
+      <p class="hint">Animated GIFs become one frame per GIF frame. Added after the current frames.</p>
+    </div>
+
+    <div class="card">
+      <h2>Text</h2>
+      <div class="row"><input id="text" placeholder="Hello!" value="Hello!"></div>
+      <div class="row">
+        <input type="color" id="textColor" value="#00c8ff">
+        <label>Size <input type="number" id="textSize" min="6" max="32" value="16"></label>
+        <select id="textFont">
+          <option value="monospace">Mono</option>
+          <option value="sans-serif">Sans</option>
+          <option value="serif">Serif</option>
+        </select>
+        <label><input type="checkbox" id="textBold" checked> Bold</label>
+      </div>
+      <div class="row">
+        <select id="textMode">
+          <option value="scroll">Scroll left</option>
+          <option value="static">Static (one frame)</option>
+        </select>
+        <label>Speed <input type="number" id="textSpeed" min="10" max="1000" value="40"> ms/px</label>
+      </div>
+      <div class="row"><button id="makeText" class="primary">Add text frames</button></div>
+    </div>
+  </aside>
+</main>
+<div id="toast"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

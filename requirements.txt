@@ -1,0 +1,6 @@
+# Installed by install.sh via apt. rgbmatrix is built from
+# https://github.com/hzeller/rpi-rgb-led-matrix
+flask>=2.2
+pillow>=9.0
+waitress>=2.1
+numpy>=1.19
