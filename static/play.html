@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#121418">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>LED Games</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  :root { --bg: #121418; --panel: #1c1f26; --panel2: #262a33; --text: #e6e8ec; --muted: #8b93a1;
+    --accent: #4f8cff; --me: #4f8cff; --danger: #ff5a5a; --ok: #2fd27a; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex; flex-direction: column; overscroll-behavior: none; user-select: none; -webkit-user-select: none; }
+  header { display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: var(--panel); }
+  header h1 { font-size: 17px; margin: 0; flex: 1; }
+  #conn { width: 10px; height: 10px; border-radius: 50%; background: var(--danger); }
+  #conn.on { background: var(--ok); }
+  #info { padding: 12px 16px; display: flex; align-items: center; gap: 12px; min-height: 64px; }
+  #swatch { width: 28px; height: 28px; border-radius: 6px; background: var(--me); flex: none; }
+  #who { font-weight: 600; }
+  #msg { color: var(--muted); font-size: 14px; }
+  #score { margin-left: auto; font: 700 26px/1 ui-monospace, Menlo, monospace; white-space: nowrap; }
+  #score .l { color: #00aaff; } #score .r { color: #ff6e00; }
+  #pad { flex: 1; margin: 0 16px; position: relative; border-radius: 14px; background: var(--panel);
+    touch-action: none; overflow: hidden; min-height: 200px; }
+  #pad::before { content: ""; position: absolute; left: 50%; top: 12px; bottom: 12px; width: 4px;
+    margin-left: -2px; border-radius: 2px; background: var(--panel2); }
+  #thumb { position: absolute; left: 50%; width: 46%; height: 22%; transform: translate(-50%, -50%);
+    border-radius: 12px; background: var(--me); opacity: .85; pointer-events: none; transition: height .2s; }
+  #thumb.grown { height: 34%; }
+  #padHint { position: absolute; inset: auto 0 10px; text-align: center; color: var(--muted); font-size: 13px; pointer-events: none; }
+  #pad.off { opacity: .35; }
+  footer { padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); display: flex; gap: 8px; }
+  button { flex: 1; font: 600 18px system-ui, sans-serif; padding: 16px; border-radius: 12px; border: none;
+    background: var(--accent); color: #fff; cursor: pointer; }
+  button:active { filter: brightness(1.2); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">LED Games</h1>
+  <span id="conn" title="Connection"></span>
+</header>
+<div id="info">
+  <div id="swatch"></div>
+  <div>
+    <div id="who">Connecting…</div>
+    <div id="msg"></div>
+  </div>
+  <div id="score" hidden><span class="l">0</span> : <span class="r">0</span></div>
+</div>
+<div id="pad" class="off">
+  <div id="thumb" style="top:50%"></div>
+  <div id="padHint">Slide your finger up and down</div>
+</div>
+<footer>
+  <button id="start" hidden>▶ Start</button>
+  <button id="launch" hidden>▶ Play Paddle Duel on the matrix</button>
+</footer>
+<script>
+'use strict';
+const $ = (s) => document.querySelector(s);
+let ws = null, state = {}, pos = 0.5, lastSent = -1, sendTimer = null, gamePort = null;
+
+// ------------------------------------------------------------ connection
+async function connect() {
+  if (gamePort === null) {
+    try { gamePort = (await (await fetch('/api/catalog')).json()).game_port; }
+    catch (e) { setTimeout(connect, 2000); return; }
+  }
+  ws = new WebSocket(`ws://${location.hostname}:${gamePort}/`);
+  ws.onopen = () => { $('#conn').classList.add('on'); lastSent = -1; sendPos(); };
+  ws.onmessage = (e) => {
+    const m = JSON.parse(e.data);
+    if (m.t === 'state') { state = m; render(); }
+    else if (m.t === 'event') buzz(m.name);
+  };
+  ws.onclose = () => {
+    $('#conn').classList.remove('on');
+    state = {}; $('#who').textContent = 'Reconnecting…'; $('#msg').textContent = '';
+    setTimeout(connect, 1500);
+  };
+}
+function send(obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
+setInterval(() => send({ t: 'hi' }), 3000);
+
+function sendPos() {  // at most every 20 ms; the latest position always gets through
+  if (sendTimer) return;
+  if (Math.abs(pos - lastSent) > 0.001) { send({ t: 'pos', v: +pos.toFixed(4) }); lastSent = pos; }
+  sendTimer = setTimeout(() => { sendTimer = null; if (Math.abs(pos - lastSent) > 0.001) sendPos(); }, 20);
+}
+function buzz(name) {
+  const pattern = { hit: 25, power: [40, 40, 40], point: [30, 50, 30], miss: 220 }[name];
+  if (pattern && navigator.vibrate) navigator.vibrate(pattern);
+}
+
+// ---------------------------------------------------------------- render
+const PHASE = {
+  lobby: 'Waiting to start', countdown: 'Get ready…', serve: 'Playing', playing: 'Playing',
+  point: 'Point!', over: 'Game over', joining: 'Joining…',
+};
+function render() {
+  const s = state, playing = s.running && s.side !== undefined && s.side !== null;
+  $('#launch').hidden = s.running !== false;
+  $('#start').hidden = !s.can_start;
+  $('#start').textContent = s.phase === 'over' ? '▶ Play again' : '▶ Start';
+  $('#pad').classList.toggle('off', !playing);
+  $('#score').hidden = !s.running || !s.score || s.phase === 'lobby';
+  if (s.score) { $('#score .l').textContent = s.score[0]; $('#score .r').textContent = s.score[1]; }
+  $('#thumb').classList.toggle('grown', !!s.grown);
+  document.documentElement.style.setProperty('--me', s.color || '#4f8cff');
+  if (s.running === false) {
+    $('#title').textContent = 'LED Games';
+    $('#who').textContent = 'No game on the matrix';
+    $('#msg').textContent = 'Start one below. It replaces what the matrix shows now.';
+    return;
+  }
+  $('#title').textContent = 'Paddle Duel';
+  if (!playing) {
+    $('#who').textContent = s.phase === 'joining' ? 'Joining…' : 'Watching';
+    $('#msg').textContent = s.phase === 'joining' ? '' : 'Both sides are taken. You get the next free side.';
+    return;
+  }
+  const side = s.side === 0 ? 'left' : 'right';
+  $('#who').textContent = `Player ${s.player} · ${side} paddle`;
+  let msg = PHASE[s.phase] || '';
+  if (s.phase === 'lobby') msg = s.opponent === 'cpu' ? 'Press Start to play the computer, or wait for a friend' : 'Press Start when you are both ready';
+  if (s.phase === 'over') msg = s.won ? '🏆 You win!' : 'You lose. Play again?';
+  if (s.phase !== 'lobby' && s.phase !== 'over') msg += ` · first to ${s.win}` + (s.opponent === 'cpu' ? ' · vs computer' : '');
+  $('#msg').textContent = msg;
+}
+
+// ----------------------------------------------------------------- input
+function setPos(p) {
+  pos = Math.max(0, Math.min(1, p));
+  // thumb covers the same share of the pad as the paddle does of the matrix
+  $('#thumb').style.top = (11 + pos * 78) + '%';
+  sendPos();
+}
+const pad = $('#pad');
+let dragging = false;
+function fromEvent(e) {
+  const r = pad.getBoundingClientRect(), margin = r.height * 0.11;
+  setPos((e.clientY - r.top - margin) / (r.height - 2 * margin));
+}
+pad.addEventListener('pointerdown', (e) => { dragging = true; pad.setPointerCapture(e.pointerId); fromEvent(e); e.preventDefault(); });
+pad.addEventListener('pointermove', (e) => { if (dragging) fromEvent(e); });
+pad.addEventListener('pointerup', () => (dragging = false));
+pad.addEventListener('pointercancel', () => (dragging = false));
+document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+
+// keyboard, for testing from a computer: arrow keys or W / S
+const keys = new Set();
+let lastKeyT = 0;
+document.addEventListener('keydown', (e) => {
+  const k = e.key.toLowerCase();
+  if (['arrowup', 'arrowdown', 'w', 's'].includes(k)) { e.preventDefault(); if (!keys.size) { lastKeyT = performance.now(); requestAnimationFrame(keyLoop); } keys.add(k); }
+  else if ((k === ' ' || k === 'enter') && !$('#start').hidden) $('#start').click();
+});
+document.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
+function keyLoop(t) {
+  if (!keys.size) return;
+  const dt = (t - lastKeyT) / 1000; lastKeyT = t;
+  const dir = (keys.has('arrowdown') || keys.has('s') ? 1 : 0) - (keys.has('arrowup') || keys.has('w') ? 1 : 0);
+  setPos(pos + dir * dt * 1.4);
+  requestAnimationFrame(keyLoop);
+}
+
+$('#start').onclick = () => send({ t: 'start' });
+$('#launch').onclick = () => send({ t: 'launch', game: 'paddle' });
+
+// keep the screen on while playing, where the browser allows it
+async function keepAwake() {
+  try { if (navigator.wakeLock) await navigator.wakeLock.request('screen'); } catch (e) { /* not available over http */ }
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) keepAwake(); });
+keepAwake();
+connect();
+</script>
+</body>
+</html>

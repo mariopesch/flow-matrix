@@ -13,12 +13,15 @@ import os
 import re
 import shutil
 import signal
+import socket
 import sys
 
 from flask import Flask, abort, jsonify, request, send_file, send_from_directory
 from PIL import Image, ImageSequence
 
+from ledanim import wsserver
 from ledanim.driver import MatrixDriver
+from ledanim.games import GAMES, GameHub, PaddleDuel
 from ledanim.scenes import (AnimationScene, ClockScene, EffectScene, LiveScene,
                             PlaylistScene, OpenSenseMapScene, TestPatternScene, WeatherScene)
 from ledanim.opensensemap import OpenSenseMapService
@@ -44,6 +47,8 @@ app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024
 driver = None   # type: MatrixDriver
 weather = None  # type: WeatherService
 opensensemap = None  # type: OpenSenseMapService
+hub = None  # type: GameHub
+ports = {"http": 8080, "game": 8081}
 settings = {"clock_color": "#ff8c00", "effect_speed": 1.0}
 
 
@@ -143,6 +148,10 @@ def build_scene(spec, nested=False):
         if name in ("weather", "dashboard"):
             return WeatherScene(weather, W, H, style=name, color=color), {"type": "view", "name": name}
         abort(400, "unknown view '%s'" % name)
+    if kind == "game" and not nested:
+        if name not in GAMES:
+            abort(400, "unknown game '%s'" % name)
+        return PaddleDuel(hub, W, H, join_url=play_url()), {"type": "game", "name": name}
     if kind == "playlist" and not nested:
         items = []
         for item in read_json(PLAYLIST_FILE, []):
@@ -154,6 +163,18 @@ def build_scene(spec, nested=False):
             abort(400, "playlist is empty")
         return PlaylistScene(items), {"type": "playlist"}
     abort(400, "unknown type '%s'" % kind)
+
+
+def play_url():
+    """Address of the phone controller page, as shown on the matrix."""
+    ip = "<PI-ADDRESS>"
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("10.255.255.255", 1))  # no packet is sent; just picks the LAN interface
+            ip = s.getsockname()[0]
+    except OSError:
+        pass
+    return "%s:%d/play" % (ip, ports["http"])
 
 
 def show(spec):
@@ -208,6 +229,11 @@ def index():
     return send_from_directory(app.static_folder, "index.html")
 
 
+@app.route("/play")
+def play():
+    return send_from_directory(app.static_folder, "play.html")
+
+
 @app.get("/api/status")
 def api_status():
     return jsonify({**driver.status(), **settings})
@@ -217,7 +243,9 @@ def api_status():
 def api_catalog():
     return jsonify(effects=[{"id": k, "title": v.title} for k, v in EFFECTS.items()],
                    effects_error=EFFECTS_ERROR,
-                   views=[{"id": k, "title": v} for k, v in VIEWS.items()])
+                   views=[{"id": k, "title": v} for k, v in VIEWS.items()],
+                   games=[{"id": k, "title": v} for k, v in GAMES.items()],
+                   game_port=ports["game"])
 
 
 @app.post("/api/show")
@@ -420,6 +448,8 @@ def main():
     p = argparse.ArgumentParser(description="Web animation editor for RGB LED matrices")
     p.add_argument("--host", default="0.0.0.0")
     p.add_argument("--port", type=int, default=8080)
+    p.add_argument("--game-port", type=int, default=0,
+                   help="WebSocket port for phone game controllers (default: --port + 1)")
     p.add_argument("--rows", type=int, default=32, help="rows per panel")
     p.add_argument("--cols", type=int, default=32, help="columns per panel")
     p.add_argument("--chain", type=int, default=3, help="number of chained panels")
@@ -445,7 +475,8 @@ def main():
     state = read_json(STATE_FILE, {})
     settings.update({k: state[k] for k in settings if k in state})
 
-    global driver, weather, opensensemap
+    global driver, weather, opensensemap, hub
+    ports.update(http=args.port, game=args.game_port or args.port + 1)
     driver = MatrixDriver(rows=args.rows, cols=args.cols, chain=args.chain,
                           parallel=args.parallel, hardware_mapping=args.mapping,
                           gpio_slowdown=args.slowdown, brightness=state.get("brightness", args.brightness),
@@ -462,6 +493,10 @@ def main():
     scfg = state.get("opensensemap", {})
     opensensemap = OpenSenseMapService(box_id=scfg.get("box"), sensors=scfg.get("sensors"), mode=scfg.get("mode", "big"))
 
+    hub = GameHub(is_running=lambda: driver.spec.get("type") == "game",
+                  launch=lambda name: show({"type": "game", "name": name}))
+    wsserver.serve(args.host, ports["game"], hub.serve)
+
     spec = state.get("spec") or {}
     if spec.get("type") not in (None, "off"):
         try:
@@ -474,7 +509,7 @@ def main():
                                      "hardware" if driver.hardware else "SIMULATOR - rgbmatrix not found"))
     if EFFECTS_ERROR:
         print("WARNING:", EFFECTS_ERROR)
-    print("Web UI: http://<this-pi>:%d" % args.port)
+    print("Web UI: http://<this-pi>:%d   Game controllers: http://%s" % (args.port, play_url()))
     try:
         try:
             from waitress import serve

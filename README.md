@@ -28,6 +28,7 @@ Open **http://\<pi-name\>.local:8080** in a browser.
 | Effects | Plasma, Fire, Matrix rain, Fireworks, Snowfall and more. **→ Editor** copies an effect into editable frames |
 | Views | Clock, Weather, Clock + weather. Set the city for the weather here (free data from Open-Meteo, no account needed) |
 | openSenseMap | Paste an openSenseMap box ID (or its link from opensensemap.org), tick the sensors to show, pick **One at a time** or **List**, then **Show on matrix**. Values update every minute; values older than an hour are dimmed. The **openSenseMap** view can also go in the playlist |
+| Games | **Paddle Duel**: two players, one at each end of the matrix. Players open **http://\<pi-name\>.local:8080/play** on their phones and slide a finger to steer; the matrix also shows this address. With one player, the computer takes the other side. Each hit speeds the ball up, and green orbs give the last player who hit the ball a bigger paddle for 10 seconds. First to 7 wins |
 | Playlist | Rotates through animations, effects and views |
 | Image / GIF, Text | Import pictures or animated GIFs, or create scrolling text |
 
@@ -65,6 +66,7 @@ Settings are in `config.env`. Change them by running `./install.sh` again or by 
   - Everything upside down: `--pixel-mapper "Rotate:180"`.
   - Panels stay dark or flicker oddly: `--panel-type FM6126A`.
 - **Weather shows an error**: the Pi needs internet access. Check the spelling of the city.
+- **Phones can't join a game** ("Reconnecting…"): phone controllers use a second port, 8081 by default (the web port + 1, or `--game-port` in `EXTRA_ARGS`). The phone must be on the same network as the Pi, and guest Wi‑Fi networks often block devices from reaching each other.
 
 ## Project layout
 
@@ -72,7 +74,8 @@ Settings are in `config.env`. Change them by running `./install.sh` again or by 
 app.py              web server + API
 run.sh              starts the app with config.env
 install.sh          installer
-ledanim/            display engine: driver, scenes, effects, weather, pixel font
+ledanim/            display engine: driver, scenes, effects, weather, openSenseMap,
+                    games, WebSocket server for phone controllers, pixel font
 static/             web interface
 data/               your animations, playlist and saved state
 ```
