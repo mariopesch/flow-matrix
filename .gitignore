@@ -1,0 +1,22 @@
+# Python virtual environment (created by install.sh on the Pi, or by hand for development)
+venv/
+.venv/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Per-device settings written by install.sh
+config.env
+
+# User data: saved state, playlist and animations (the folder itself is kept via .keep)
+data/*
+!data/animations/
+data/animations/*
+!data/animations/.keep
+*.tmp
+
+# OS and editor files
+.DS_Store
+.vscode/
+.idea/

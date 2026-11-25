@@ -34,7 +34,8 @@ for ch, rows in _G.items():
     GLYPHS[ch] = ([(x - mn, y) for x, y in pts], mx - mn + 1)
 
 HEIGHT = 5
-_SUBST = {"ß": "SS", "Ä": "AE", "Ö": "OE", "Ü": "UE", "ä": "AE", "ö": "OE", "ü": "UE"}
+_SUBST = {"ß": "SS", "Ä": "AE", "Ö": "OE", "Ü": "UE", "ä": "AE", "ö": "OE", "ü": "UE",
+          "µ": "U", "μ": "U", "·": "-", "Ω": "OHM"}
 
 
 def normalize(text):

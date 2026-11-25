@@ -9,6 +9,7 @@ from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont
 
 from . import pixelfont
+from . import opensensemap as osm
 from . import weather as wx
 
 FONT_PATHS = [
@@ -235,6 +236,120 @@ class WeatherScene(Scene):
             lines = [now.strftime("%a %d.%m.")] + details
             small_line(img, x0, 26, self.rw, lines[int(t / self.ROTATE) % len(lines)], grey, t)
         return img, 1 / 15
+
+
+class OpenSenseMapScene(Scene):
+    """Selected sensors of an openSenseMap box.
+    mode 'big': one sensor at a time with a large value.  mode 'list': one sensor per text row."""
+    ROTATE = 4.0
+    WHITE, GREY = (230, 230, 230), (140, 150, 170)
+
+    def __init__(self, service, w, h, color=(255, 140, 0)):
+        self.service, self.w, self.h, self.color = service, w, h, tuple(color)
+        self.big_h = max(7, h - 16)
+        self.big = fit_font("-88.8", w - 16, self.big_h, 24)
+        self._fonts = {}
+
+    def start(self):
+        self.t0 = time.monotonic()
+
+    def _value_font(self, text, max_w):
+        """The default big font, or a smaller one if this value doesn't fit."""
+        l, _, r, _ = self.big.getbbox(text)
+        if r - l <= max_w:
+            return self.big
+        if text not in self._fonts:
+            self._fonts[text] = fit_font(text, max_w, self.big_h, 24)
+        return self._fonts[text]
+
+    def _value_color(self, s, now):
+        if s["unit"].replace(" ", "") in ("°C", "°F"):
+            col = wx.temp_color(_num(s["value"]), s["unit"].strip()[-1])
+        else:
+            col = self.color
+        if s["value"] is None or not s["time"] or now - s["time"] > osm.STALE_AFTER:
+            col = tuple(int(c * 0.4) for c in col)
+        return col
+
+    def _message(self, img, title, text, t):
+        small_line(img, 1, 1, self.w - 2, title, self.WHITE, t)
+        small_line(img, 1, self.h // 2 - 2, self.w - 2, text, self.GREY, t)
+
+    def next(self):
+        t = time.monotonic() - self.t0
+        now = time.time()
+        info = self.service.info()
+        img = Image.new("RGB", (self.w, self.h))
+        box = info["box"]
+        if not box:
+            msg = ("ERR: " + info["error"]) if info["error"] else \
+                ("LOADING..." if info["box_id"] else "SET AN OPENSENSEMAP BOX ID IN THE WEB UI")
+            self._message(img, "OPENSENSEMAP", msg, t)
+            return img, 1 / 15
+        sensors = self.service.selected_sensors()
+        if not sensors:
+            self._message(img, box["name"], "NO SENSORS SELECTED", t)
+            return img, 1 / 15
+        if info["mode"] == "list":
+            self._draw_list(img, sensors, t, now)
+        else:
+            self._draw_big(img, box, sensors, t, now)
+        return img, 1 / 15
+
+    def _draw_big(self, img, box, sensors, t, now):
+        page = int(t / self.ROTATE) % len(sensors)
+        s = sensors[page]
+        small_line(img, 1, 1, self.w - 2, s["title"], self.WHITE, t)
+        value = osm.format_value(s["value"])
+        unit = s["unit"].strip()
+        uw = pixelfont.text_width(unit) + 2 if unit else 0
+        fnt = self._value_font(value, self.w - 2 - uw)
+        l, tp, r, b = fnt.getbbox(value)
+        x = max(0, (self.w - (r - l) - uw) // 2)
+        y = 8 + (self.big_h - (b - tp)) // 2
+        col = self._value_color(s, now)
+        end = draw_big(img, x, y, value, fnt, col)
+        if unit:
+            pixelfont.draw_text(img, (end + 2, y), unit, col)
+        footer = box["name"]
+        if s["time"]:
+            footer += " - " + _age(now - s["time"])
+        small_line(img, 1, self.h - 5, self.w - 2, footer, self.GREY, t)
+        if len(sensors) > 1:
+            for i in range(len(sensors)):
+                px = self.w - 2 * len(sensors) + 2 * i
+                if 0 <= px < self.w:
+                    img.putpixel((px, self.h - 7), self.WHITE if i == page else (50, 50, 60))
+
+    def _draw_list(self, img, sensors, t, now):
+        rows = max(1, (self.h + 1) // 6)
+        pages = (len(sensors) + rows - 1) // rows
+        page = int(t / (self.ROTATE * 1.5)) % pages
+        top = (self.h - (rows * 6 - 1)) // 2
+        for i, s in enumerate(sensors[page * rows:(page + 1) * rows]):
+            y = top + i * 6
+            text = osm.format_value(s["value"]) + (" " + s["unit"].strip() if s["unit"].strip() else "")
+            vw = pixelfont.text_width(text)
+            pixelfont.draw_text(img, (self.w - vw - 1, y), text, self._value_color(s, now))
+            small_line(img, 1, y, max(1, self.w - vw - 4), s["title"], self.GREY, t, speed=10)
+
+
+def _num(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _age(seconds):
+    seconds = max(0, int(seconds))
+    if seconds < 90:
+        return "NOW"
+    if seconds < 5400:
+        return "%dMIN AGO" % (seconds // 60)
+    if seconds < 172800:
+        return "%dH AGO" % (seconds // 3600)
+    return "%dD AGO" % (seconds // 86400)
 
 
 class PlaylistScene(Scene):

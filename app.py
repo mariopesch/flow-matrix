@@ -20,7 +20,8 @@ from PIL import Image, ImageSequence
 
 from ledanim.driver import MatrixDriver
 from ledanim.scenes import (AnimationScene, ClockScene, EffectScene, LiveScene,
-                            PlaylistScene, TestPatternScene, WeatherScene)
+                            PlaylistScene, OpenSenseMapScene, TestPatternScene, WeatherScene)
+from ledanim.opensensemap import OpenSenseMapService
 from ledanim.weather import WeatherService
 
 try:
@@ -35,12 +36,14 @@ ANIM_DIR = os.path.join(DATA_DIR, "animations")
 STATE_FILE = os.path.join(DATA_DIR, "state.json")
 PLAYLIST_FILE = os.path.join(DATA_DIR, "playlist.json")
 MAX_FRAMES = 1000
-VIEWS = {"clock": "Clock", "weather": "Weather", "dashboard": "Clock + weather", "test": "Test pattern"}
+VIEWS = {"clock": "Clock", "weather": "Weather", "dashboard": "Clock + weather",
+         "opensensemap": "openSenseMap", "test": "Test pattern"}
 
 app = Flask(__name__, static_folder=os.path.join(BASE_DIR, "static"), static_url_path="/static")
 app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024
 driver = None   # type: MatrixDriver
 weather = None  # type: WeatherService
+opensensemap = None  # type: OpenSenseMapService
 settings = {"clock_color": "#ff8c00", "effect_speed": 1.0}
 
 
@@ -135,6 +138,8 @@ def build_scene(spec, nested=False):
             return ClockScene(W, H, color), {"type": "view", "name": name}
         if name == "test":
             return TestPatternScene(W, H), {"type": "view", "name": name}
+        if name == "opensensemap":
+            return OpenSenseMapScene(opensensemap, W, H, color), {"type": "view", "name": name}
         if name in ("weather", "dashboard"):
             return WeatherScene(weather, W, H, style=name, color=color), {"type": "view", "name": name}
         abort(400, "unknown view '%s'" % name)
@@ -165,7 +170,8 @@ def save_state():
     if spec.get("type") in ("live", "unsaved"):
         spec = {"type": "off"}
     state = {"spec": spec, "brightness": driver.brightness,
-             "weather": {"city": weather.city, "units": weather.units}, **settings}
+             "weather": {"city": weather.city, "units": weather.units},
+             "opensensemap": opensensemap.config(), **settings}
     try:
         write_json(STATE_FILE, state)
     except OSError as exc:
@@ -364,6 +370,28 @@ def api_weather_set():
     return jsonify(weather.info())
 
 
+@app.get("/api/opensensemap")
+def api_opensensemap():
+    return jsonify(opensensemap.info())
+
+
+@app.post("/api/opensensemap")
+def api_opensensemap_set():
+    """{"box": "<id or link>"} loads a box; {"sensors": [...], "mode": "big|list"} picks what to show."""
+    body = request.get_json(silent=True) or {}
+    if body.get("box"):
+        try:
+            opensensemap.set_box(str(body["box"])[:300])
+        except ValueError as exc:
+            abort(400, str(exc))
+    sensors = body.get("sensors")
+    if sensors is not None and not isinstance(sensors, list):
+        abort(400, "sensors must be a list")
+    opensensemap.configure(sensors=sensors, mode=body.get("mode"))
+    save_state()
+    return jsonify(opensensemap.info())
+
+
 @app.get("/api/playlist")
 def api_playlist():
     return jsonify(read_json(PLAYLIST_FILE, []))
@@ -417,7 +445,7 @@ def main():
     state = read_json(STATE_FILE, {})
     settings.update({k: state[k] for k in settings if k in state})
 
-    global driver, weather
+    global driver, weather, opensensemap
     driver = MatrixDriver(rows=args.rows, cols=args.cols, chain=args.chain,
                           parallel=args.parallel, hardware_mapping=args.mapping,
                           gpio_slowdown=args.slowdown, brightness=state.get("brightness", args.brightness),
@@ -431,6 +459,8 @@ def main():
                                          "pixel_mapper_config": args.pixel_mapper})
     wcfg = state.get("weather", {})
     weather = WeatherService(city=wcfg.get("city", "Berlin"), units=wcfg.get("units", "metric"))
+    scfg = state.get("opensensemap", {})
+    opensensemap = OpenSenseMapService(box_id=scfg.get("box"), sensors=scfg.get("sensors"), mode=scfg.get("mode", "big"))
 
     spec = state.get("spec") or {}
     if spec.get("type") not in (None, "off"):

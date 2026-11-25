@@ -27,6 +27,7 @@ Open **http://\<pi-name\>.local:8080** in a browser.
 | Editor | Draw frames, add/duplicate/reorder them, preview, save. Tick **Live on matrix** to draw directly on the panels |
 | Effects | Plasma, Fire, Matrix rain, Fireworks, Snowfall and more. **→ Editor** copies an effect into editable frames |
 | Views | Clock, Weather, Clock + weather. Set the city for the weather here (free data from Open-Meteo, no account needed) |
+| openSenseMap | Paste an openSenseMap box ID (or its link from opensensemap.org), tick the sensors to show, pick **One at a time** or **List**, then **Show on matrix**. Values update every minute; values older than an hour are dimmed. The **openSenseMap** view can also go in the playlist |
 | Playlist | Rotates through animations, effects and views |
 | Image / GIF, Text | Import pictures or animated GIFs, or create scrolling text |
 

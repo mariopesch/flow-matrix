@@ -125,6 +125,23 @@
     </div>
 
     <div class="card">
+      <h2>openSenseMap</h2>
+      <div class="row">
+        <input id="boxId" placeholder="openSenseMap box ID or link">
+        <button id="setBox">Load</button>
+      </div>
+      <p id="boxInfo" class="hint">Paste the ID of an openSenseMap box, or its link from opensensemap.org.</p>
+      <ul id="sensors"></ul>
+      <div class="row" id="boxControls" hidden>
+        <select id="boxMode" title="Layout on the matrix">
+          <option value="big">One at a time</option>
+          <option value="list">List</option>
+        </select>
+        <button id="boxShow" class="primary">▶ Show on matrix</button>
+      </div>
+    </div>
+
+    <div class="card">
       <h2>Playlist</h2>
       <ul id="playlist"></ul>
       <div class="row">

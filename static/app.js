@@ -398,6 +398,54 @@ async function loadWeather() {
   } catch (e) { /* ignore */ }
 }
 
+// --------------------------------------------------------- openSenseMap
+let BOX = null;
+function ago(ts) {
+  if (!ts) return '';
+  const m = Math.round((Date.now() / 1000 - ts) / 60);
+  if (m < 2) return 'now';
+  if (m < 90) return m + ' min ago';
+  if (m < 2880) return Math.round(m / 60) + ' h ago';
+  return Math.round(m / 1440) + ' days ago';
+}
+function renderOpenSenseMap(info) {
+  BOX = info;
+  if (document.activeElement !== $('#boxId')) $('#boxId').value = info.box_id || '';
+  $('#boxMode').value = info.mode;
+  const box = info.box, ul = $('#sensors');
+  ul.innerHTML = '';
+  $('#boxControls').hidden = !box;
+  let txt = 'Paste the ID of an openSenseMap box, or its link from opensensemap.org.';
+  if (box) txt = `${box.name} · ${box.sensors.length} sensors · tick the ones to show`;
+  else if (info.error) txt = '⚠ ' + info.error;
+  else if (info.box_id) txt = 'Loading box…';
+  $('#boxInfo').textContent = txt;
+  $('#boxInfo').classList.toggle('err', !box && !!info.error);
+  if (!box) return;
+  const sel = new Set(info.selected);
+  box.sensors.forEach((s) => {
+    const li = document.createElement('li');
+    if (!s.time || Date.now() / 1000 - s.time > 3600) li.className = 'stale';
+    const lab = document.createElement('label');
+    const cb = document.createElement('input'); cb.type = 'checkbox'; cb.value = s.id; cb.checked = sel.has(s.id);
+    cb.onchange = saveSensorSelection;
+    const name = document.createElement('span'); name.textContent = s.title;
+    name.title = s.type ? `${s.title} (${s.type})` : s.title;
+    const val = document.createElement('small');
+    val.textContent = s.value == null ? 'no data' : `${s.value} ${s.unit}`.trim();
+    val.title = s.time ? 'measured ' + ago(s.time) : '';
+    lab.append(cb, name, val); li.append(lab); ul.append(li);
+  });
+}
+async function loadOpenSenseMap() {
+  try { renderOpenSenseMap(await api('GET', '/api/opensensemap')); } catch (e) { /* ignore */ }
+}
+async function saveSensorSelection() {
+  const sensors = $$('#sensors input:checked').map((c) => c.value);
+  try { renderOpenSenseMap(await api('POST', '/api/opensensemap', { sensors })); }
+  catch (e) { toast(e.message, true); }
+}
+
 // -------------------------------------------------------------- playlist
 let PL = [];
 function sourceLabel(it) {
@@ -563,6 +611,22 @@ function wire() {
   };
   $('#city').onkeydown = (e) => { if (e.key === 'Enter') $('#setCity').click(); };
   $('#units').onchange = () => $('#setCity').click();
+  $('#setBox').onclick = async () => {
+    const box = $('#boxId').value.trim();
+    if (!box) { toast('Paste an openSenseMap box ID first', true); $('#boxId').focus(); return; }
+    $('#boxInfo').textContent = 'Loading box…'; $('#boxInfo').classList.remove('err');
+    try { renderOpenSenseMap(await api('POST', '/api/opensensemap', { box })); toast('Loaded ' + BOX.box.name); }
+    catch (e) { $('#boxInfo').textContent = '⚠ ' + e.message; $('#boxInfo').classList.add('err'); }
+  };
+  $('#boxId').onkeydown = (e) => { if (e.key === 'Enter') $('#setBox').click(); };
+  $('#boxMode').onchange = async () => {
+    try { renderOpenSenseMap(await api('POST', '/api/opensensemap', { mode: $('#boxMode').value })); }
+    catch (e) { toast(e.message, true); }
+  };
+  $('#boxShow').onclick = () => {
+    if (!$$('#sensors input:checked').length) { toast('Tick at least one sensor', true); return; }
+    showOnMatrix({ type: 'view', name: 'opensensemap', color: $('#clockColor').value });
+  };
   $('#plAdd').onclick = () => {
     const v = $('#plSource').value; if (!v) return;
     const [type, ...rest] = v.split(':');
@@ -629,7 +693,8 @@ function setTool(t) {
   S.frames = [blankFrame()];
   buildPalette(); wire(); fit(); buildThumbs(); updateFrameUi();
   await loadCatalog();
-  pollStatus(); refreshLibrary(); loadPlaylist(); loadWeather();
+  pollStatus(); refreshLibrary(); loadPlaylist(); loadWeather(); loadOpenSenseMap();
   setInterval(pollStatus, 1500);
   setInterval(loadWeather, 60000);
+  setInterval(loadOpenSenseMap, 60000);
 })();
