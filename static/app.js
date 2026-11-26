@@ -327,7 +327,7 @@ async function refreshLibrary() {
 
 // ---------------------------------------------------------------- status
 let draggingBrightness = false;
-const CAT = { effects: [], views: [] };
+const CAT = { effects: [], views: [], games: [] };
 function specLabel(sp) {
   const title = (list, id) => (list.find((x) => x.id === id) || {}).title || id;
   switch (sp.type) {
@@ -336,6 +336,7 @@ function specLabel(sp) {
     case 'effect': return 'Effect: ' + title(CAT.effects, sp.name);
     case 'view': return title(CAT.views, sp.name);
     case 'playlist': return 'Playlist';
+    case 'game': return 'Game: ' + title(CAT.games, sp.name);
     case 'live': return 'Live editing';
     default: return 'Matrix off';
   }
@@ -348,6 +349,7 @@ async function pollStatus() {
     if (!draggingBrightness) { $('#brightness').value = s.brightness; $('#brightVal').textContent = s.brightness; }
     $$('#effects button').forEach((b) => b.classList.toggle('on', sp.type === 'effect' && sp.name === b.dataset.id));
     $$('#views button').forEach((b) => b.classList.toggle('on', sp.type === 'view' && sp.name === b.dataset.id));
+    $$('#games button').forEach((b) => b.classList.toggle('on', sp.type === 'game' && sp.name === b.dataset.id));
     $('#plPlay').classList.toggle('on', sp.type === 'playlist');
     const playing = sp.type === 'animation' ? sp.name : null;
     if (playing !== S.playingName) { S.playingName = playing; refreshLibrary(); }
@@ -379,6 +381,13 @@ async function loadCatalog() {
     b.onclick = () => showOnMatrix({ type: 'view', name: v.id, color: $('#clockColor').value });
     vg.append(b);
   });
+  const gg = $('#games'); gg.innerHTML = '';
+  CAT.games.forEach((g) => {
+    const b = document.createElement('button'); b.textContent = g.title; b.dataset.id = g.id;
+    b.onclick = () => showOnMatrix({ type: 'game', name: g.id });
+    gg.append(b);
+  });
+  $('#playLink').textContent = `${location.host}/play`;
   fillPlaylistSources();
 }
 async function loadWeather() {

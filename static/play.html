@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#121418">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>LED Games</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  :root { --bg: #121418; --panel: #1c1f26; --panel2: #262a33; --text: #e6e8ec; --muted: #8b93a1;
+    --accent: #4f8cff; --me: #4f8cff; --danger: #ff5a5a; --ok: #2fd27a; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex; flex-direction: column; overscroll-behavior: none; user-select: none; -webkit-user-select: none; }
+  header { display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: var(--panel); }
+  header h1 { font-size: 17px; margin: 0; flex: 1; }
+  #conn { width: 10px; height: 10px; border-radius: 50%; background: var(--danger); }
+  #conn.on { background: var(--ok); }
+  #info { padding: 12px 16px; display: flex; align-items: center; gap: 12px; min-height: 64px; }
+  #swatch { width: 28px; height: 28px; border-radius: 6px; background: var(--me); flex: none; }
+  #who { font-weight: 600; }
+  #msg { color: var(--muted); font-size: 14px; }
+  #hud { margin: 0 16px 10px; font: 600 15px/1.3 ui-monospace, Menlo, monospace; color: var(--text); }
+  #hud:empty { display: none; }
+
+  #pad { flex: 1; margin: 0 16px; position: relative; border-radius: 14px; background: var(--panel);
+    touch-action: none; overflow: hidden; min-height: 180px; }
+  #pad.off { opacity: .35; }
+  #padHint { position: absolute; inset: auto 0 10px; text-align: center; color: var(--muted); font-size: 13px; pointer-events: none; }
+  /* slider */
+  #track { position: absolute; left: 50%; top: 12px; bottom: 12px; width: 4px; margin-left: -2px;
+    border-radius: 2px; background: var(--panel2); }
+  #thumb { position: absolute; left: 50%; width: 46%; height: 22%; transform: translate(-50%, -50%);
+    border-radius: 12px; background: var(--me); opacity: .85; pointer-events: none; transition: height .2s; }
+  #thumb.grown { height: 34%; }
+  /* joystick: appears where the finger touches down */
+  #base, #knob { position: absolute; border-radius: 50%; pointer-events: none; transform: translate(-50%, -50%); }
+  #base { width: 150px; height: 150px; border: 3px solid var(--panel2); }
+  #knob { width: 64px; height: 64px; background: var(--me); opacity: .9; }
+
+  #actions { display: flex; gap: 8px; margin: 10px 16px 0; }
+  #actions button { height: 96px; font-size: 22px; letter-spacing: .05em; background: var(--panel2); border: 2px solid var(--me); }
+  #actions button.down { background: var(--me); }
+  #games { margin: 10px 16px 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  #games button { background: var(--panel2); font-size: 15px; padding: 12px 8px; }
+  #games button small { display: block; color: var(--muted); font-weight: 400; font-size: 12px; }
+  #games button.cur { outline: 2px solid var(--me); }
+  footer { padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); display: flex; gap: 8px; }
+  button { flex: 1; font: 600 18px system-ui, sans-serif; padding: 16px; border-radius: 12px; border: none;
+    background: var(--accent); color: #fff; cursor: pointer; }
+  button.secondary { flex: 0 0 auto; background: var(--panel2); }
+  button:active { filter: brightness(1.2); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">LED Games</h1>
+  <span id="conn" title="Connection"></span>
+</header>
+<div id="info">
+  <div id="swatch"></div>
+  <div>
+    <div id="who">Connecting…</div>
+    <div id="msg"></div>
+  </div>
+</div>
+<div id="hud"></div>
+<div id="pad" class="off">
+  <div id="track"></div>
+  <div id="thumb" style="top:50%"></div>
+  <div id="base" hidden></div>
+  <div id="knob" hidden></div>
+  <div id="padHint"></div>
+</div>
+<div id="actions"></div>
+<div id="games" hidden></div>
+<footer>
+  <button id="start" hidden>▶ Start</button>
+  <button id="change" class="secondary" hidden>Games</button>
+</footer>
+<script>
+'use strict';
+const $ = (s) => document.querySelector(s);
+let ws = null, state = {}, gamePort = null, showGames = false;
+let controls = 'slider', pos = 0.5, stick = [0, 0];
+
+// ------------------------------------------------------------ connection
+async function connect() {
+  if (gamePort === null) {
+    try { gamePort = (await (await fetch('/api/catalog')).json()).game_port; }
+    catch (e) { setTimeout(connect, 2000); return; }
+  }
+  ws = new WebSocket(`ws://${location.hostname}:${gamePort}/`);
+  ws.onopen = () => { $('#conn').classList.add('on'); sent.pos = sent.stick = null; flush(); };
+  ws.onmessage = (e) => {
+    const m = JSON.parse(e.data);
+    if (m.t === 'state') { state = m; render(); }
+    else if (m.t === 'event') buzz(m.name);
+  };
+  ws.onclose = () => {
+    $('#conn').classList.remove('on');
+    state = {}; $('#who').textContent = 'Reconnecting…'; $('#msg').textContent = '';
+    setTimeout(connect, 1500);
+  };
+}
+function send(obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
+setInterval(() => send({ t: 'hi' }), 3000);
+
+// position / stick updates: at most every 20 ms, the latest value always gets through
+const sent = { pos: null, stick: null };
+let flushTimer = null;
+function flush() {
+  if (flushTimer) return;
+  const p = +pos.toFixed(3), s = stick.map((v) => +v.toFixed(2)).join(',');
+  if (controls === 'slider' && p !== sent.pos) { send({ t: 'pos', v: p }); sent.pos = p; }
+  if (controls === 'stick' && s !== sent.stick) { send({ t: 'stick', x: stick[0], y: stick[1] }); sent.stick = s; }
+  flushTimer = setTimeout(() => { flushTimer = null; if (+pos.toFixed(3) !== sent.pos || stick.map((v) => +v.toFixed(2)).join(',') !== sent.stick) flush(); }, 20);
+}
+function buzz(name) {
+  const pattern = { hit: 25, power: [40, 40, 40], point: [30, 50, 30], miss: 220 }[name];
+  if (pattern && navigator.vibrate) navigator.vibrate(pattern);
+}
+
+// ---------------------------------------------------------------- render
+let builtFor = '';
+function buildControls(c) {
+  const key = JSON.stringify(c || {});
+  if (key === builtFor) return;
+  builtFor = key;
+  controls = (c && c.type) || 'slider';
+  const slider = controls === 'slider';
+  $('#track').hidden = $('#thumb').hidden = !slider;
+  $('#padHint').textContent = slider ? 'Slide your finger up and down' : 'Touch and drag to steer';
+  stick = [0, 0]; endStick();
+  const box = $('#actions'); box.innerHTML = '';
+  ((c && c.buttons) || []).forEach((b) => {
+    const el = document.createElement('button'); el.textContent = b.toUpperCase(); el.dataset.b = b;
+    const down = (e) => {
+      e.preventDefault(); el.classList.add('down'); send({ t: 'btn', b, down: true });
+      try { el.setPointerCapture(e.pointerId); } catch (err) { /* release still arrives via pointerup */ }
+    };
+    const up = () => { if (!el.classList.contains('down')) return; el.classList.remove('down'); send({ t: 'btn', b, down: false }); };
+    el.addEventListener('pointerdown', down);
+    el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up); el.addEventListener('lostpointercapture', up);
+    box.append(el);
+  });
+}
+function renderGames() {
+  const box = $('#games'); box.innerHTML = '';
+  Object.entries(state.games || {}).forEach(([id, g]) => {
+    const b = document.createElement('button');
+    b.innerHTML = `${g.title}<small>${g.players === '1' ? '1 player' : g.players.replace('-', '–') + ' players'}</small>`;
+    if (state.running && state.game === id) b.className = 'cur';
+    b.onclick = () => { showGames = false; send({ t: 'launch', game: id }); render(); };
+    box.append(b);
+  });
+}
+function render() {
+  const s = state, mine = s.running && s.side !== undefined && s.side !== null;
+  document.documentElement.style.setProperty('--me', s.color || '#4f8cff');
+  const pickable = s.running === false || s.phase === 'lobby' || s.phase === 'over';
+  if (!pickable) showGames = false;
+  $('#games').hidden = !(s.running === false || showGames);
+  renderGames();
+  $('#change').hidden = !s.running || !pickable;
+  $('#change').textContent = showGames ? 'Back' : 'Games';
+  $('#start').hidden = !s.can_start || showGames;
+  $('#start').textContent = s.phase === 'over' ? '▶ Play again' : '▶ Start';
+  $('#hud').textContent = s.hud || '';
+  if (s.running === false) {
+    $('#title').textContent = 'LED Games';
+    $('#who').textContent = 'Pick a game';
+    $('#msg').textContent = 'It replaces what the matrix shows now.';
+    $('#pad').hidden = true; $('#actions').hidden = true;
+    return;
+  }
+  $('#pad').hidden = $('#actions').hidden = showGames;
+  buildControls(s.controls);
+  $('#title').textContent = s.title || 'LED Games';
+  $('#pad').classList.toggle('off', !mine);
+  $('#thumb').classList.toggle('grown', !!s.grown);
+  $('#who').textContent = !s.running ? '' : mine ? `Player ${s.player}` : (s.phase === 'joining' ? 'Joining…' : 'Watching');
+  $('#msg').textContent = s.msg || '';
+}
+
+// ----------------------------------------------------------------- input
+const pad = $('#pad');
+function setPos(p) {
+  pos = Math.max(0, Math.min(1, p));
+  $('#thumb').style.top = (11 + pos * 78) + '%';  // same share of the pad as the paddle of the matrix
+  flush();
+}
+let origin = null;
+function endStick() {
+  origin = null; $('#base').hidden = $('#knob').hidden = true;
+  if (stick[0] || stick[1]) { stick = [0, 0]; flush(); }
+}
+function onPointer(e, first) {
+  const r = pad.getBoundingClientRect();
+  if (controls === 'slider') {
+    const margin = r.height * 0.11;
+    setPos((e.clientY - r.top - margin) / (r.height - 2 * margin));
+    return;
+  }
+  const x = e.clientX - r.left, y = e.clientY - r.top, R = 60;
+  if (first) {
+    origin = [x, y];
+    Object.assign($('#base').style, { left: x + 'px', top: y + 'px' }); $('#base').hidden = false;
+  }
+  let dx = (x - origin[0]) / R, dy = (y - origin[1]) / R;
+  const m = Math.hypot(dx, dy);
+  if (m > 1) { dx /= m; dy /= m; }
+  stick = [dx, dy];
+  Object.assign($('#knob').style, { left: origin[0] + dx * R + 'px', top: origin[1] + dy * R + 'px' }); $('#knob').hidden = false;
+  flush();
+}
+let dragging = false;
+pad.addEventListener('pointerdown', (e) => {
+  dragging = true; e.preventDefault(); onPointer(e, true);
+  try { pad.setPointerCapture(e.pointerId); } catch (err) { /* keep working without capture */ }
+});
+pad.addEventListener('pointermove', (e) => { if (dragging) onPointer(e, false); });
+const release = () => { dragging = false; if (controls === 'stick') endStick(); };
+pad.addEventListener('pointerup', release);
+pad.addEventListener('pointercancel', release);
+document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+
+// keyboard, for testing from a computer: arrows or WASD, space = first action button
+const keys = new Set();
+let lastKeyT = 0;
+const dirKeys = { arrowup: [0, -1], w: [0, -1], arrowdown: [0, 1], s: [0, 1], arrowleft: [-1, 0], a: [-1, 0], arrowright: [1, 0], d: [1, 0] };
+function keyStick() {
+  let x = 0, y = 0;
+  keys.forEach((k) => { x += dirKeys[k][0]; y += dirKeys[k][1]; });
+  const m = Math.hypot(x, y) || 1;
+  stick = [x / m, y / m]; flush();
+}
+document.addEventListener('keydown', (e) => {
+  const k = e.key.toLowerCase();
+  if (dirKeys[k]) {
+    e.preventDefault();
+    if (keys.has(k)) return;
+    if (!keys.size) { lastKeyT = performance.now(); requestAnimationFrame(keyLoop); }
+    keys.add(k); if (controls === 'stick') keyStick();
+  } else if (k === 'enter' && !$('#start').hidden) $('#start').click();
+  else if (k === ' ') {
+    e.preventDefault();
+    const b = $('#actions button');
+    if (b && !e.repeat) { b.classList.add('down'); send({ t: 'btn', b: b.dataset.b, down: true }); }
+    else if (!b && !$('#start').hidden) $('#start').click();
+  }
+});
+document.addEventListener('keyup', (e) => {
+  const k = e.key.toLowerCase();
+  if (dirKeys[k]) { keys.delete(k); if (controls === 'stick') keyStick(); }
+  if (k === ' ') { const b = $('#actions button'); if (b) { b.classList.remove('down'); send({ t: 'btn', b: b.dataset.b, down: false }); } }
+});
+function keyLoop(t) {
+  if (!keys.size) return;
+  const dt = (t - lastKeyT) / 1000; lastKeyT = t;
+  if (controls === 'slider') {
+    let dir = 0; keys.forEach((k) => (dir += dirKeys[k][1]));
+    setPos(pos + Math.sign(dir) * dt * 1.4);
+  }
+  requestAnimationFrame(keyLoop);
+}
+
+$('#start').onclick = () => send({ t: 'start' });
+$('#change').onclick = () => { showGames = !showGames; render(); };
+
+// keep the screen on while playing, where the browser allows it
+async function keepAwake() {
+  try { if (navigator.wakeLock) await navigator.wakeLock.request('screen'); } catch (e) { /* not available over http */ }
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) keepAwake(); });
+keepAwake();
+connect();
+</script>
+</body>
+</html>

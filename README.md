@@ -28,6 +28,7 @@ Open **http://\<pi-name\>.local:8080** in a browser.
 | Effects | Plasma, Fire, Matrix rain, Fireworks, Snowfall and more. **→ Editor** copies an effect into editable frames |
 | Views | Clock, Weather, Clock + weather. Set the city for the weather here (free data from Open-Meteo, no account needed) |
 | openSenseMap | Paste an openSenseMap box ID (or its link from opensensemap.org), tick the sensors to show, pick **One at a time** or **List**, then **Show on matrix**. Values update every minute; values older than an hour are dimmed. The **openSenseMap** view can also go in the playlist |
+| Games | Players open **http://\<pi-name\>.local:8080/play** on their phones (the matrix shows this address), pick a game and press Start. The phone becomes the controller and shows the score. **Paddle Duel** (1–2): a paddle at each end; hits speed the ball up, green orbs make your paddle bigger, first to 7 wins. **Glow Trails** (1–4): steer a trail of light, don't hit a wall or any trail; last one moving wins the round, first to 3 rounds wins. **Brick Storm** (1): a sideways brick breaker with levels, tougher bricks and capsules (green = longer paddle, cyan = extra balls, yellow = slower ball). **Meteor Drift** (1): drag to steer a ship through drifting rocks that split when shot, hold FIRE to shoot. **Swarm Siege** (1): slide along the left edge and hold FIRE against a marching swarm of drones that steps closer at every turn; watch for divers, and hit the golden drone for double shots. In multiplayer games the computer fills empty spots. Best scores are kept in `data/highscores.json` |
 | Playlist | Rotates through animations, effects and views |
 | Image / GIF, Text | Import pictures or animated GIFs, or create scrolling text |
 
@@ -65,6 +66,7 @@ Settings are in `config.env`. Change them by running `./install.sh` again or by 
   - Everything upside down: `--pixel-mapper "Rotate:180"`.
   - Panels stay dark or flicker oddly: `--panel-type FM6126A`.
 - **Weather shows an error**: the Pi needs internet access. Check the spelling of the city.
+- **Phones can't join a game** ("Reconnecting…"): phone controllers use a second port, 8081 by default (the web port + 1, or `--game-port` in `EXTRA_ARGS`). The phone must be on the same network as the Pi, and guest Wi‑Fi networks often block devices from reaching each other.
 
 ## Project layout
 
@@ -72,7 +74,8 @@ Settings are in `config.env`. Change them by running `./install.sh` again or by 
 app.py              web server + API
 run.sh              starts the app with config.env
 install.sh          installer
-ledanim/            display engine: driver, scenes, effects, weather, pixel font
+ledanim/            display engine: driver, scenes, effects, weather, openSenseMap,
+                    games, WebSocket server for phone controllers, pixel font
 static/             web interface
 data/               your animations, playlist and saved state
 ```

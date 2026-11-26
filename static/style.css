@@ -88,3 +88,4 @@ h3 { font-size: 12px; margin: 12px 0 6px; color: var(--muted); text-transform: u
 #sensors small { color: var(--muted); white-space: nowrap; }
 #sensors .stale small { opacity: .5; }
 [hidden] { display: none !important; }
+aside a { color: var(--accent); }
